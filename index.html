@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JWT Registration & Authentication</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .view { display: none; }
+    .active { display: block; }
+    textarea, input { width: 100%; margin: 10px 0; }
+    textarea { height: 100px; }
+    pre {
+      background: #eee;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      border-radius: 5px;
+    }
+    button { padding: 10px 20px; margin-top: 10px; }
+    nav button { margin-right: 10px; }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <button onclick="switchView('registration')">Registration</button>
+    <button onclick="switchView('authentication')">Authentication</button>
+  </nav>
+
+  <!-- Registration View -->
+  <div id="registration" class="view active">
+    <h2>Registration</h2>
+
+    <label>Header (JSON):</label>
+    <textarea id="regHeader">{ "alg": "HS256", "typ": "JWT" }</textarea>
+
+    <label>Body (JSON):</label>
+    <textarea id="regBody">{ "user": "alice", "action": "register" }</textarea>
+
+    <label>Request JWT String:</label>
+    <pre id="regRequestString">...</pre>
+
+    <label>Decoded Request JWT:</label>
+    <pre id="regDecodedRequest">...</pre>
+
+    <label>Response JWT String:</label>
+    <pre id="regResponseString">...</pre>
+
+    <label>Decoded Response JWT:</label>
+    <pre id="regDecodedResponse">...</pre>
+
+    <label>Path:</label>
+    <input type="text" id="regPath" value="/register" />
+
+    <button onclick="sendJWT('registration')">Send Registration</button>
+  </div>
+
+  <!-- Authentication View -->
+  <div id="authentication" class="view">
+    <h2>Authentication</h2>
+
+    <label>Header (JSON):</label>
+    <textarea id="authHeader">{ "alg": "HS256", "typ": "JWT" }</textarea>
+
+    <label>Body (JSON):</label>
+    <textarea id="authBody">{ "user": "alice", "action": "authenticate" }</textarea>
+
+    <label>Request JWT String:</label>
+    <pre id="authRequestString">...</pre>
+
+    <label>Decoded Request JWT:</label>
+    <pre id="authDecodedRequest">...</pre>
+
+    <label>Response JWT String:</label>
+    <pre id="authResponseString">...</pre>
+
+    <label>Decoded Response JWT:</label>
+    <pre id="authDecodedResponse">...</pre>
+
+    <label>Path:</label>
+    <input type="text" id="authPath" value="/authenticate" />
+
+    <button onclick="sendJWT('authentication')">Send Authentication</button>
+  </div>
+
+  <script>
+    function switchView(view) {
+      document.querySelectorAll('.view').forEach(div => div.classList.remove('active'));
+      document.getElementById(view).classList.add('active');
+    }
+
+    function base64url(input) {
+      return btoa(input)
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    }
+
+    function decodeJWT(jwt) {
+      const parts = jwt.split('.');
+      if (parts.length < 2) return "Invalid JWT";
+      const [header, payload] = parts;
+      try {
+        const decodedHeader = JSON.parse(atob(header.replace(/-/g, '+').replace(/_/g, '/')));
+        const decodedPayload = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+        return JSON.stringify({ header: decodedHeader, payload: decodedPayload }, null, 2);
+      } catch {
+        return "Failed to decode JWT";
+      }
+    }
+
+    async function sendJWT(type) {
+      const prefix = type === 'registration' ? 'reg' : 'auth';
+
+      const headerInput = document.getElementById(`${prefix}Header`);
+      const bodyInput = document.getElementById(`${prefix}Body`);
+      const requestStringEl = document.getElementById(`${prefix}RequestString`);
+      const decodedRequestEl = document.getElementById(`${prefix}DecodedRequest`);
+      const responseStringEl = document.getElementById(`${prefix}ResponseString`);
+      const decodedResponseEl = document.getElementById(`${prefix}DecodedResponse`);
+      const path = document.getElementById(`${prefix}Path`).value;
+
+      try {
+        const headerJSON = JSON.parse(headerInput.value);
+        const bodyJSON = JSON.parse(bodyInput.value);
+
+        const encodedHeader = base64url(JSON.stringify(headerJSON));
+        const encodedBody = base64url(JSON.stringify(bodyJSON));
+        const signature = base64url('dummy-signature');
+        const jwt = `${encodedHeader}.${encodedBody}.${signature}`;
+
+        // Show request
+        requestStringEl.textContent = jwt;
+        decodedRequestEl.textContent = decodeJWT(jwt);
+
+        // Send as plain text to localhost
+        const res = await fetch(`http://localhost:8080${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: jwt
+        });
+
+        const responseJWT = await res.text();
+
+        responseStringEl.textContent = responseJWT;
+        decodedResponseEl.textContent = decodeJWT(responseJWT);
+        decodedResponseEl.style.backgroundColor = res.ok ? "#d4edda" : "#f8d7da"; // green / red
+      } catch (e) {
+        requestStringEl.textContent = "Error: " + e.message;
+        decodedRequestEl.textContent = "";
+        responseStringEl.textContent = "";
+        decodedResponseEl.textContent = "Error: " + e.message;
+        decodedResponseEl.style.backgroundColor = "#f8d7da"; // red
+      }
+    }
+  </script>
+</body>
+</html>
