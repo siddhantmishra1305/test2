@@ -2,153 +2,111 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>PingOne SSO Extension Handshake Demo</title>
+  <title>Credential-type SSO Extension — XHR Handshake</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body { font: 14px/1.4 -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
-    h1 { font-size: 20px; margin-bottom: .5rem; }
-    .row { margin: .5rem 0; }
-    input[type=text] { width: 100%; padding: .5rem; }
-    button { padding: .6rem 1rem; cursor: pointer; }
-    pre { background:#f7f7f9; padding:1rem; overflow:auto; border:1px solid #eee; }
-    .muted { color:#666; }
+    body{font:14px/1.4 -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:2rem;}
+    h1{font-size:20px; margin:0 0 .5rem}
+    .row{margin:.5rem 0}
+    input,button{padding:.6rem .8rem}
+    input{width:100%}
+    pre{background:#f7f7f9; border:1px solid #eee; padding:1rem; overflow:auto}
+    .muted{color:#666}
   </style>
 </head>
 <body>
-  <h1>Credential-type SSO Extension — Web Handshake</h1>
+  <h1>Credential-type SSO Extension — Direct fetch()</h1>
   <p class="muted">
-    This page creates a challenge and navigates to your associated host
-    <code>https://apps.pingone.com/pingid/desktop/</code>. Your SSO extension should
-    sign the challenge and 302 back to <code>REDIRECT_URI</code> with
-    <code>device_sig</code> and optional <code>device_key_id</code>.
+    Click “Send Request” to POST a challenge to your associated host
+    <code>https://apps.pingone.com/pingid/desktop/handshake</code>.
+    Safari will route this call to your credential SSO extension.
+    The extension should return JSON with a signature/JWT. No redirects involved.
   </p>
 
   <div class="row">
-    <label>Redirect URI (where your extension will send the browser back):</label>
-    <input id="redirectUri" type="text"/>
+    <label>Endpoint (under your associated host):</label>
+    <input id="endpoint" type="text" value="https://apps.pingone.com/pingid/desktop/handshake"/>
   </div>
 
   <div class="row">
-    <button id="startBtn">Start Handshake</button>
-    <button id="clearBtn" style="margin-left:.5rem">Clear Output</button>
+    <label>Expected fields in JSON response (editable):</label>
+    <input id="expect" type="text" value="device_sig,device_key_id,jwt"/>
   </div>
 
-  <h2>Callback Parameters</h2>
-  <pre id="out">(nothing yet)</pre>
+  <div class="row">
+    <button id="sendBtn">Send Request</button>
+    <button id="clearBtn" style="margin-left:.5rem">Clear</button>
+  </div>
+
+  <h2>Request</h2>
+  <pre id="reqOut">(none)</pre>
+
+  <h2>Response</h2>
+  <pre id="resOut">(none)</pre>
 
   <script>
-  // ---------- Config ----------
-  // Default to same origin + /callback (or current page if you prefer)
-  const DEFAULT_REDIRECT_PATH = "/callback";
-  const REDIRECT_URI = (() => {
-    try {
-      const u = new URL(window.location.href);
-      u.pathname = DEFAULT_REDIRECT_PATH;
-      u.search = ""; u.hash = "";
-      return u.toString();
-    } catch { return window.location.origin + DEFAULT_REDIRECT_PATH; }
-  })();
-
-  // Associated host base — must match your SSO profile
-  const HANDOFF_BASE = "https://apps.pingone.com/pingid/desktop/handshake";
-
-  // ---------- Tiny helpers ----------
+  // ---------- helpers ----------
   function b64urlFromBytes(bytes) {
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,"");
+    let s = ""; for (let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   }
-  function randomB64url(len = 32) {
-    const b = new Uint8Array(len);
-    crypto.getRandomValues(b);
-    return b64urlFromBytes(b);
-  }
-  function setOut(obj) {
-    const el = document.getElementById("out");
-    el.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
-  }
+  function randB64url(n=32){ const b=new Uint8Array(n); crypto.getRandomValues(b); return b64urlFromBytes(b); }
+  function setPre(id, obj){ document.getElementById(id).textContent = typeof obj === "string" ? obj : JSON.stringify(obj,null,2); }
 
-  // ---------- Challenge builder ----------
+  // ---------- build a challenge the extension will sign ----------
   function buildChallenge() {
-    // Include timestamp + nonce for freshness; add anything you want to bind (e.g., app, org, user hint)
-    const payload = {
-      ver: 1,
-      ts: Date.now(),
-      nonce: randomB64url(16)
-    };
+    const payload = { ver:1, ts: Date.now(), nonce: randB64url(16) };
     const raw = new TextEncoder().encode(JSON.stringify(payload));
-    const chal = b64urlFromBytes(raw);
-    return { payload, chal };
+    return { payload, chal: b64urlFromBytes(raw) };
   }
 
-  // ---------- Start flow: navigate to associated host with your params ----------
-  function startHandshake() {
-    const redirectInput = document.getElementById("redirectUri");
-    const redirectUri = (redirectInput.value || "").trim() || REDIRECT_URI;
+  // ---------- send POST to associated host (intercepted by OS/extension) ----------
+  async function sendRequest() {
+    const endpoint = document.getElementById("endpoint").value.trim();
+    const expected = document.getElementById("expect").value.split(",").map(s=>s.trim()).filter(Boolean);
 
-    // Build challenge and remember it locally to verify round-trip (optional)
     const { payload, chal } = buildChallenge();
-    sessionStorage.setItem("device_chal", chal);
-    sessionStorage.setItem("state", randomB64url(16));
-    sessionStorage.setItem("redirect_uri", redirectUri);
+    const body = {
+      device_chal: chal,                     // challenge (base64url)
+      state: randB64url(16),                 // optional correlation value
+      // add any hints the extension needs (e.g., key id, user hint, policy)
+      // device_key_hint: "key-123"
+    };
 
-    const url = new URL(HANDOFF_BASE);
-    url.searchParams.set("device_chal", chal);                   // custom param your extension reads
-    url.searchParams.set("state", sessionStorage.getItem("state"));
-    url.searchParams.set("redirect_uri", redirectUri);           // tell extension where to 302 back
+    setPre("reqOut", { url: endpoint, method: "POST", body });
 
-    // This navigation triggers the credential-type SSO extension
-    window.location.assign(url.toString());
-  }
-
-  // ---------- Handle callback: read device_sig/device_key_id/state ----------
-  function handleCallback() {
-    const q = new URLSearchParams(window.location.search);
-    const deviceSig = q.get("device_sig");
-    const deviceKeyId = q.get("device_key_id");
-    const state = q.get("state");
-
-    if (!deviceSig && !deviceKeyId && !state) {
-      setOut("(nothing yet)");
+    // Normal fetch — NOT a navigation. Safari will intercept and route to your extension.
+    let r;
+    try {
+      r = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        // If your extension returns cookies and you want them: credentials: "include"
+      });
+    } catch (e) {
+      setPre("resOut", `Network error: ${e}`);
       return;
     }
 
-    const expectedState = sessionStorage.getItem("state") || "(missing)";
-    const deviceChal = sessionStorage.getItem("device_chal") || "(missing)";
-    const redirectUri = sessionStorage.getItem("redirect_uri") || "(missing)";
+    // CORS note: your extension must set Access-Control-Allow-Origin to allow reading this.
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-    const result = {
-      fromQuery: { device_sig: deviceSig, device_key_id: deviceKeyId, state },
-      stored: { state: expectedState, device_chal: deviceChal, redirect_uri: redirectUri },
-      notes: [
-        "Verify state matches expectedState.",
-        "Verify device_sig using your server-side device public key mapping.",
-        "Enforce ts/nonce freshness from the original device_chal payload."
-      ]
-    };
-    setOut(result);
+    setPre("resOut", { status: r.status, headers: Object.fromEntries(r.headers.entries()), data });
 
-    // (Optional) POST to your backend to verify signature and start a session
-    // fetch("/auth/callback", {
-    //   method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   credentials: "include",
-    //   body: JSON.stringify({ deviceSig, deviceKeyId: deviceKeyId || null, state })
-    // }).then(r => r.json()).then(data => console.log("Server result:", data));
-
-    // Clean up if you want single-use
-    // sessionStorage.removeItem("state");
-    // sessionStorage.removeItem("device_chal");
-    // sessionStorage.removeItem("redirect_uri");
+    // Optional: quick sanity checks
+    const missing = expected.filter(k => !(k in (data || {})));
+    if (missing.length) {
+      console.warn("Missing expected keys:", missing);
+    } else {
+      console.log("All expected keys present.");
+    }
   }
 
-  // ---------- Wire up UI ----------
-  document.getElementById("redirectUri").value = REDIRECT_URI;
-  document.getElementById("startBtn").addEventListener("click", startHandshake);
-  document.getElementById("clearBtn").addEventListener("click", () => setOut("(cleared)"));
-
-  // Run on load to capture any callback
-  handleCallback();
+  document.getElementById("sendBtn").addEventListener("click", sendRequest);
+  document.getElementById("clearBtn").addEventListener("click", () => { setPre("reqOut", "(none)"); setPre("resOut", "(none)"); });
   </script>
 </body>
 </html>
