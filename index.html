@@ -58,12 +58,6 @@ window.addEventListener("DOMContentLoaded", () => {
   log("Navigating to:", sso.toString());
   // Top-level navigation (required for Redirect-type SSO in Safari)
   window.top.location.assign(sso.toString());
-
-  // Fallback: if nothing intercepts within N seconds, go to Google anyway
-  setTimeout(() => {
-    log("Fallback: sending to:", TARGET_URL);
-    window.top.location.replace(TARGET_URL);
-  }, 2500);
 });
 </script>
 </body>
