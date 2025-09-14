@@ -1,150 +1,70 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<title>Redirect-type SSO (self-redirect demo)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta charset="utf-8" />
+<title>Safari → SSO → Redirect</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  body{font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;color:#111}
-  h1{font-size:20px;margin:0 0 10px}
-  label{font-weight:600;display:block;margin-top:12px}
-  textarea{width:100%;height:110px;padding:8px 10px}
-  button{padding:8px 12px;margin-right:8px}
-  pre{background:#f7f7f9;border:1px solid #e5e5ea;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap}
-  .ok{background:#e8f8ef}
-  .err{background:#fde8e8}
+  body { font:14px/1.5 -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:24px }
+  pre  { background:#f7f7f9; border:1px solid #e5e5ea; padding:12px; border-radius:8px; overflow:auto; }
+  .hint{ color:#666 }
 </style>
 </head>
 <body>
-<h1>Redirect-type SSO — Self-redirect flow</h1>
+<h1>Redirect test (Safari → apps.pingone.com → Google)</h1>
+<p class="hint">This page immediately navigates to the SSO URL. Your Redirect-type SSO extension should intercept and return a 3xx to Google. A fallback timer will send you to Google if nothing happens.</p>
 
-<!-- ========= CONFIG: EDIT THESE ========= -->
-<script>
-  // 1) The URL prefix that triggers your Redirect-type SSO extension (must match MDM profile 'URLs')
-  const SSO_BASE      = "https://apps.pingone.com/pingid/desktop";  // e.g., this prefix is in the profile
-  const REGISTER_PATH = "/register";
-  const AUTH_PATH     = "/authenticate";
-
-  // 2) Where to land AFTER SSO — here we send Safari back to THIS PAGE (self)
-  //    You can change the path, but keep it same-origin so this code can read the query params.
-  const REDIRECT_URI  = location.origin + location.pathname; // self
-</script>
-<!-- ===================================== -->
-
-<label>JWT Header (JSON)</label>
-<textarea id="hdr">{ "alg":"HS256", "typ":"JWT" }</textarea>
-
-<label>JWT Payload (JSON)</label>
-<textarea id="pld">{ "user":"alice@example.com", "purpose":"demo" }</textarea>
-
-<div style="margin-top:12px">
-  <button onclick="startFlow('registration')">Start Registration</button>
-  <button onclick="startFlow('authentication')">Start Authentication</button>
-  <button onclick="resetView()">Reset</button>
-</div>
-
-<label style="margin-top:16px">Request JWT</label>
-<pre id="req">(none)</pre>
-
-<label>Callback / Result</label>
-<pre id="res">(none)</pre>
+<pre id="log">(waiting)</pre>
 
 <script>
-/* ===== Utilities ===== */
-function b64url(str){return btoa(str).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
-function encodeJWT(headerObj, payloadObj){
-  const h=b64url(JSON.stringify(headerObj));
-  const p=b64url(JSON.stringify(payloadObj));
-  const s=b64url("dummy-signature"); // replace if you need real signing
-  return `${h}.${p}.${s}`;
-}
-function decodeJWT(jwt){
-  try{
-    const [h,p]=jwt.split('.');
-    const hdr=JSON.parse(atob(h.replace(/-/g,'+').replace(/_/g,'/')));
-    const pld=JSON.parse(atob(p.replace(/-/g,'+').replace(/_/g,'/')));
-    return JSON.stringify({header:hdr,payload:pld},null,2);
-  }catch{ return "(could not decode JWT)"; }
-}
-function randState(){
-  const a=new Uint8Array(16); crypto.getRandomValues(a);
-  return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('');
-}
-function set(id, txt){document.getElementById(id).textContent = txt;}
+/*** === CONFIG — EDIT THESE === ***/
+const SSO_BASE   = "https://apps.pingone.com/pingid/desktop"; // must match your Redirect profile's URLs prefix
+const SSO_PATH   = "/test";                                    // any path under SSO_BASE you use to trigger the extension
+const TARGET_URL = "https://www.google.com/";                  // where you ultimately want to land
+const SELF_URL   = location.origin + location.pathname;        // this page (for debugging round-trips)
+/*** ============================ ***/
 
-/* ===== Kick off SSO: top-level navigation with redirect_uri=self ===== */
-function startFlow(kind){
-  let header, payload;
-  try{
-    header  = JSON.parse(document.getElementById('hdr').value);
-    payload = JSON.parse(document.getElementById('pld').value);
-  }catch(e){
-    set('req', 'Invalid JSON in header/payload');
-    return;
-  }
+const logEl = document.getElementById('log');
+const log = (...a) => { logEl.textContent = a.map(String).join(" ") + "\n" + logEl.textContent; };
 
-  const jwt   = encodeJWT(header, payload);
-  const state = randState();
-
-  // Save for round-trip validation
-  sessionStorage.setItem('sso_state', state);
-  sessionStorage.setItem('sso_req_jwt', jwt);
-
-  set('req', jwt);
-
-  const path = (kind === 'registration') ? REGISTER_PATH : AUTH_PATH;
-
-  // Build GET URL — MUST match a prefix in the Redirect profile's 'URLs'
-  const url = new URL(SSO_BASE + path);
-  url.searchParams.set('jwt', jwt);
-  url.searchParams.set('redirect_uri', REDIRECT_URI);  // 👈 send Safari back to this page
-  url.searchParams.set('state', state);
-
-  // Top-level navigation is REQUIRED to invoke Redirect-type SSO in Safari
-  window.top.location.assign(url.toString());
+function randState() {
+  const a = new Uint8Array(16); crypto.getRandomValues(a);
+  return Array.from(a, x => x.toString(16).padStart(2, "0")).join("");
 }
 
-/* ===== Handle self-redirect callback =====
-   Your extension should 302/303/307 to REDIRECT_URI with params like:
-   ?state=...&token=... (or ?jwt=... / ?code=...)
-*/
-(function handleCallback(){
-  // If there are no query params, nothing to do
+// If we returned here with params, show them (don’t re-trigger)
+(function showCallbackIfAny(){
   if (!location.search) return;
-
   const qp = new URLSearchParams(location.search);
-  const gotState = qp.get('state') || qp.get('s');
-  const token    = qp.get('token') || qp.get('jwt') || qp.get('code');
-  const error    = qp.get('error');
-
-  const expected = sessionStorage.getItem('sso_state') || "(none)";
-  const reqJwt   = sessionStorage.getItem('sso_req_jwt') || "(none)";
-
-  let out = [];
-  out.push(`redirect_uri (self): ${REDIRECT_URI}`);
-  if (error) out.push(`error: ${error}`);
-  out.push(`state: ${gotState || "(missing)"}  (expected: ${expected})`);
-  out.push(`token param: ${token ? token.substring(0,90)+(token.length>90?'…':'') : "(missing)"}`);
-  if (token) {
-    out.push("decoded token (best-effort):");
-    out.push(decodeJWT(token));
-  }
-  out.push("original request JWT:");
-  out.push(reqJwt);
-
-  const pre = document.getElementById('res');
-  pre.classList.remove('ok','err');
-  if (!error && token && gotState && expected !== "(none)" && gotState === expected) pre.classList.add('ok');
-  if (error) pre.classList.add('err');
-  pre.textContent = out.join('\n');
+  const state = qp.get("state");
+  const token = qp.get("token") || qp.get("jwt") || qp.get("code");
+  log("Returned to self with params:");
+  log("state:", state || "(none)");
+  log("token:", token ? token.slice(0, 90) + (token.length > 90 ? "…" : "") : "(none)");
+  // Clear query from bar so refresh doesn’t keep state
+  const u = new URL(location.href); u.search = ""; history.replaceState(null, "", u);
 })();
 
-function resetView(){
-  const u=new URL(location.href); u.search=""; u.hash="";
-  sessionStorage.removeItem('sso_state');
-  sessionStorage.removeItem('sso_req_jwt');
-  location.replace(u.toString());
-}
+window.addEventListener("DOMContentLoaded", () => {
+  // Build an SSO URL that asks extension to send us straight to TARGET_URL.
+  const state = randState();
+  sessionStorage.setItem("sso_state", state);
+
+  const sso = new URL(SSO_BASE + SSO_PATH);
+  // Your extension can read these; it should 302/303 to TARGET_URL
+  sso.searchParams.set("redirect_uri", TARGET_URL);
+  sso.searchParams.set("state", state);
+
+  log("Navigating to:", sso.toString());
+  // Top-level navigation (required for Redirect-type SSO in Safari)
+  window.top.location.assign(sso.toString());
+
+  // Fallback: if nothing intercepts within N seconds, go to Google anyway
+  setTimeout(() => {
+    log("Fallback: sending to:", TARGET_URL);
+    window.top.location.replace(TARGET_URL);
+  }, 2500);
+});
 </script>
 </body>
 </html>
