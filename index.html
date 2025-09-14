@@ -1,231 +1,273 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<title>SSO Redirect (Register / Authentication / Status)</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  body{font:14px/1.5 -apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;color:#111}
-  h1{font-size:20px;margin:0 0 12px}
-  label{font-weight:600;display:block;margin-top:14px}
-  textarea{width:100%;height:110px;padding:8px 10px}
-  input[type="text"]{width:100%;padding:8px 10px}
-  .row{margin-top:8px}
-  .controls button{padding:8px 12px;margin:8px 10px 0 0}
-  pre{background:#f7f7f9;border:1px solid #e5e5ea;padding:12px;border-radius:8px;white-space:pre-wrap;overflow:auto}
-  .muted{color:#666}
-  .ok{background:#e8f8ef}.err{background:#fde8e8}
-</style>
+  <meta charset="UTF-8" />
+  <title>JWT Registration & Authentication (Redirect-type SSO)</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .view { display: none; } .active { display: block; }
+    textarea, input { width: 100%; margin: 10px 0; }
+    textarea { height: 100px; }
+    pre { background: #eee; padding: 10px; white-space: pre-wrap; word-wrap: break-word; border-radius: 5px; }
+    button { padding: 10px 20px; margin-top: 10px; }
+    nav button { margin-right: 10px; }
+    .force-sso-container { margin: 15px 0; }
+    .force-sso-container label { cursor: pointer; font-size: 14px; }
+    .force-sso-container input[type="checkbox"] { margin-right: 5px; transform: scale(1.1); vertical-align: middle; }
+    .port-container { margin: 15px 0; }
+    .port-container label { font-size: 14px; font-weight: bold; margin-right: 8px; }
+    .port-container input[type="number"] { width: 100px; display: inline-block; margin: 0; }
+    .ok { background:#e8f8ef; } .err{ background:#fde8e8; }
+  </style>
 </head>
 <body>
-<h1>SSO Redirect — Registration / Authentication / Status</h1>
-<p class="muted">
-  This page performs a <b>top-level navigation</b> to <code>apps.pingone.com</code> so your Redirect-type SSO extension runs.
-  The extension should redirect back here with <code>?state=…&token=…</code> (or fragment <code>#token=…</code>).
-</p>
+  <nav>
+    <button onclick="switchView('registration')">Registration</button>
+    <button onclick="switchView('authentication')">Authentication</button>
+    <button onclick="switchView('status')">Status</button>
+  </nav>
 
-<!-- ==== CONFIG (edit only if needed) ==== -->
-<script>
-  const SSO_BASE = "https://apps.pingone.com/pingid/desktop";
-  const ROUTES = {
-    registration: "/register",
-    authentication: "/authentication",
-    status: "/status",
-  };
-  const REDIRECT_URI = location.origin + location.pathname; // return to self
-</script>
-<!-- ===================================== -->
-
-<div class="row">
-  <label>Header JSON</label>
-  <textarea id="hdr">{ "alg":"HS256", "typ":"JWT" }</textarea>
-</div>
-<div class="row">
-  <label>Body JSON</label>
-  <textarea id="pld">{ "user":"alice@example.com", "purpose":"demo" }</textarea>
-</div>
-
-<div class="row">
-  <label>Send options</label>
-  <div>
-    <input type="checkbox" id="wrapAsJWT" checked>
-    <label for="wrapAsJWT" style="font-weight:400">Wrap request payload as JWT and send (like the original script)</label>
+  <div class="force-sso-container">
+    <label>
+      <input type="checkbox" id="forceSSO" />
+      Force SSO (use extension URL even if not Safari)
+    </label>
   </div>
-</div>
 
-<div class="controls">
-  <button onclick="start('registration')">Registration</button>
-  <button onclick="start('authentication')">Authentication</button>
-  <button onclick="start('status')">Status</button>
-  <button onclick="clearView()">Clear</button>
-</div>
+  <div class="port-container">
+    <label for="customPort">Backend Port:</label>
+    <input type="number" id="customPort" min="1" max="65535" value="9410" />
+    <button onclick="applyPort()">Apply</button>
+    <span id="portStatus" style="margin-left: 10px; color: #555;"></span>
+  </div>
 
-<div class="row">
-  <label>Built Request & Navigation</label>
-  <pre id="req">(none)</pre>
-</div>
+  <!-- Registration -->
+  <div id="registration" class="view active">
+    <h2>Registration</h2>
+    <label>Header (JSON):</label>
+    <textarea id="regHeader">{ "alg": "HS256", "typ": "JWT" }</textarea>
+    <label>Body (JSON):</label>
+    <textarea id="regBody">{ "user": "alice", "action": "register" }</textarea>
+    <label>Request JWT String:</label>
+    <pre id="regRequestString">...</pre>
+    <label>Decoded Request JWT:</label>
+    <pre id="regDecodedRequest">...</pre>
+    <label>Response token (full):</label>
+    <pre id="regResponseString">...</pre>
+    <label>Decoded Response JWT:</label>
+    <pre id="regDecodedResponse">...</pre>
+    <button onclick="sendJWT('registration')">Send Registration</button>
+  </div>
 
-<div class="row">
-  <label>Return Data (from SSO redirect back here)</label>
-  <pre id="res">(none)</pre>
-</div>
+  <!-- Authentication -->
+  <div id="authentication" class="view">
+    <h2>Authentication</h2>
+    <label>Header (JSON):</label>
+    <textarea id="authHeader">{ "alg": "HS256", "typ": "JWT" }</textarea>
+    <label>Body (JSON):</label>
+    <textarea id="authBody">{ "user": "alice", "action": "authenticate" }</textarea>
+    <label>Request JWT String:</label>
+    <pre id="authRequestString">...</pre>
+    <label>Decoded Request JWT:</label>
+    <pre id="authDecodedRequest">...</pre>
+    <label>Response token (full):</label>
+    <pre id="authResponseString">...</pre>
+    <label>Decoded Response JWT:</label>
+    <pre id="authDecodedResponse">...</pre>
+    <button onclick="sendJWT('authentication')">Send Authentication</button>
+  </div>
 
-<script>
-/* ==== helpers ==== */
-const isSafari = () => /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-const b64u = s => btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-const fromB64u = s => atob(s.replace(/-/g,'+').replace(/_/g,'/'));
-const rnd = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), x => x.toString(16).padStart(2,'0')).join('');
-const set = (id, v) => document.getElementById(id).textContent = v;
+  <!-- Status -->
+  <div id="status" class="view">
+    <h2>Status Check</h2>
+    <label>RP ID:</label>
+    <input type="text" id="statusRpid" value="apps.test-one-pingone.com" />
+    <label>Environment ID:</label>
+    <input type="text" id="statusEnvId" value="53bd9bbc-5246-401e-ad71-f091ec14af5f" />
+    <label>Full Request URL:</label>
+    <pre id="statusRequestURL">...</pre>
+    <label>Response:</label>
+    <pre id="statusResponse">...</pre>
+    <button onclick="sendStatusRequest()">Send Status Request</button>
+  </div>
 
-function encodeJWT(headerObj, payloadObj){
-  const h = b64u(JSON.stringify(headerObj));
-  const p = b64u(JSON.stringify(payloadObj));
-  const s = b64u("dummy-signature"); // replace with real signing if needed
-  return `${h}.${p}.${s}`;
-}
-function decodeJWT(jwt){
-  try{
-    const [h,p] = jwt.split('.');
-    const hdr = JSON.parse(atob(h.replace(/-/g,'+').replace(/_/g,'/')));
-    const pl  = JSON.parse(atob(p.replace(/-/g,'+').replace(/_/g,'/')));
-    return JSON.stringify({header:hdr,payload:pl}, null, 2);
-  }catch{
-    return "(could not decode JWT)";
-  }
-}
-function prettyJSON(s){
-  try { return JSON.stringify(JSON.parse(s), null, 2); }
-  catch { return s; }
-}
+  <script>
+    /* ===== Config for SSO targets ===== */
+    const SSO_BASE = 'https://apps.pingone.com/pingid/desktop';
+    const PATHS = {
+      registration: '/register',
+      authentication: '/authenticate',
+      status: '/status'
+    };
+    const REDIRECT_URI = location.origin + location.pathname; // return to this same page
+    const REQUEST_PARAM_NAME = 'request'; // query param that carries the request JWT
 
-/* ==== kickoff (top-level navigation) ==== */
-async function start(kind){
-  const route = ROUTES[kind];
-  if (!route) { set('req', `Unknown kind: ${kind}`); return; }
+    // Port management (local agent fallback)
+    let backendPort = 9410;
+    function applyPort() {
+      const portInput = document.getElementById('customPort');
+      let portVal = parseInt(portInput.value, 10);
+      if (isNaN(portVal) || portVal < 1 || portVal > 65535) {
+        document.getElementById('portStatus').textContent = 'Invalid port. Must be 1-65535.';
+        document.getElementById('portStatus').style.color = '#b71c1c';
+        portInput.value = backendPort;
+        return;
+      }
+      backendPort = portVal;
+      document.getElementById('portStatus').textContent = `Port set to ${backendPort}`;
+      document.getElementById('portStatus').style.color = '#155724';
+    }
 
-  // Persist any page context you want to restore later
-  sessionStorage.setItem("ctx_scrollY", String(window.scrollY));
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('customPort').value = backendPort;
+      document.getElementById('portStatus').textContent = `Port set to ${backendPort}`;
+      document.getElementById('portStatus').style.color = '#155724';
+      handleReturn(); // process token if the SSO extension redirected back
+    });
 
-  let header, body;
-  try {
-    header = JSON.parse(document.getElementById('hdr').value);
-    body   = JSON.parse(document.getElementById('pld').value);
-  } catch(e) {
-    set('req', `Invalid JSON in header or body: ${e.message}`);
-    return;
-  }
+    function switchView(view) {
+      document.querySelectorAll('.view').forEach(div => div.classList.remove('active'));
+      document.getElementById(view).classList.add('active');
+    }
 
-  const wrapAsJWT = document.getElementById('wrapAsJWT').checked;
-  const state = rnd();
-  sessionStorage.setItem("sso_state", state);
+    function base64url(input) {
+      return btoa(input).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
 
-  // Build optional request JWT (your original script behavior)
-  const requestJWT = encodeJWT(header, body);
-
-  // Build SSO URL — MUST match your Redirect profile's URLs prefix
-  const u = new URL(SSO_BASE + route);
-  u.searchParams.set("redirect_uri", REDIRECT_URI); // come back here
-  u.searchParams.set("state", state);
-
-  // Send request data the same way your old script did:
-  // - when "wrap as JWT" is ON → send the JWT under "request"
-  // - when OFF → send the raw JSON body under "payload"
-  if (wrapAsJWT) {
-    u.searchParams.set("request", requestJWT);
-  } else {
-    u.searchParams.set("payload", b64u(JSON.stringify(body)));
-  }
-
-  // Log what we’re doing (don’t truncate)
-  let out = [];
-  out.push(`Top-level nav to: ${u.toString()}`);
-  out.push(`state: ${state}`);
-  if (wrapAsJWT) {
-    out.push(`request (JWT):\n${requestJWT}`);
-    out.push(`decoded request JWT:\n${decodeJWT(requestJWT)}`);
-  } else {
-    out.push(`payload (JSON):\n${prettyJSON(JSON.stringify(body))}`);
-  }
-  set('req', out.join("\n\n"));
-
-  // Invoke the Redirect-type SSO flow (must be top-level)
-  window.top.location.assign(u.toString());
-}
-
-/* ==== handle return (query or fragment) ==== */
-(function handleReturn(){
-  const qp = new URLSearchParams(location.search || "");
-  const hp = new URLSearchParams((location.hash || "").replace(/^#/,''));
-  const get = k => qp.get(k) || hp.get(k);
-
-  const state    = get("state");
-  const token    = get("token") || get("jwt") || get("id_token") || get("access_token"); // FULL token (no truncation)
-  const payloadB = get("payload"); // if extension returned payload separately (base64url JSON)
-  const bodyB64  = get("body");    // if extension returned httpBody (base64url)
-  const error    = get("error");
-
-  if (!(token || payloadB || bodyB64 || state || error)) return; // nothing to show
-
-  const expected = sessionStorage.getItem("sso_state");
-
-  let lines = [];
-  lines.push(`Returned to: ${REDIRECT_URI}`);
-  if (error) lines.push(`error: ${error}`);
-  lines.push(`state: ${state || "(missing)"}  expected: ${expected || "(none)"}`);
-
-  if (token) {
-    lines.push("\n— token (FULL) —");
-    lines.push(token); // NO TRUNCATION
-    // Try to decode if it looks like a JWT
-    const parts = token.split('.');
-    if (parts.length >= 2) {
+    function decodeJWT(jwt) {
+      const parts = jwt.split('.');
+      if (parts.length < 2) return 'Invalid JWT';
       try {
-        const decoded = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
-        lines.push("\n— decoded JWT payload —");
-        lines.push(JSON.stringify(decoded, null, 2));
-      } catch {}
+        const header = JSON.parse(atob(parts[0].replace(/-/g, '+').replace(/_/g, '/')));
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        return JSON.stringify({ header, payload }, null, 2);
+      } catch {
+        return 'Failed to decode JWT';
+      }
     }
-  }
 
-  if (payloadB) {
-    try {
-      lines.push("\n— payload (JSON) —");
-      lines.push(prettyJSON(fromB64u(payloadB)));
-    } catch {
-      lines.push("\n— payload (raw base64url) —");
-      lines.push(payloadB);
+    function isSafari() {
+      const ua = navigator.userAgent;
+      return /^((?!chrome|android).)*safari/i.test(ua);
     }
-  }
 
-  if (bodyB64) {
-    try {
-      lines.push("\n— httpBody (UTF-8) —");
-      lines.push(fromB64u(bodyB64));
-    } catch {
-      lines.push("\n— httpBody (base64url) —");
-      lines.push(bodyB64);
+    function randState() {
+      const a = new Uint8Array(16); crypto.getRandomValues(a);
+      return Array.from(a, x => x.toString(16).padStart(2, '0')).join('');
     }
-  }
 
-  const ok = (!error && state && expected && state === expected);
-  const resEl = document.getElementById('res');
-  resEl.classList.toggle('ok',  ok);
-  resEl.classList.toggle('err', !!error);
-  set('res', lines.join("\n"));
+    // Build a request JWT from the two textareas
+    function buildRequestJWT(headerElId, bodyElId) {
+      const headerJSON = JSON.parse(document.getElementById(headerElId).value);
+      const bodyJSON = JSON.parse(document.getElementById(bodyElId).value);
+      const jwt = [
+        base64url(JSON.stringify(headerJSON)),
+        base64url(JSON.stringify(bodyJSON)),
+        base64url('dummy-signature')
+      ].join('.');
+      return { jwt, headerJSON, bodyJSON };
+    }
 
-  // Restore context and clean URL bar
-  const y = parseInt(sessionStorage.getItem("ctx_scrollY") || "0", 10);
-  setTimeout(()=>window.scrollTo({top:y,behavior:"instant"}), 0);
-  const clean = new URL(location.href); clean.search=""; clean.hash="";
-  history.replaceState(null, "", clean);
-})();
+    async function sendJWT(kind) {
+      if (kind === 'status') return sendStatusRequest();
 
-/* ==== clear ==== */
-function clearView(){
-  sessionStorage.removeItem("sso_state");
-  set('req','(none)'); set('res','(none)');
-}
-</script>
+      const forceSSO = document.getElementById('forceSSO').checked;
+      const isBrowserSafari = isSafari();
+      const doSSO = isBrowserSafari || forceSSO;
+
+      const prefix = kind === 'registration' ? 'reg' : 'auth';
+      const reqEl = document.getElementById(`${prefix}RequestString`);
+      const decReqEl = document.getElementById(`${prefix}DecodedRequest`);
+      const resEl = document.getElementById(`${prefix}ResponseString`);
+      const decResEl = document.getElementById(`${prefix}DecodedResponse`);
+
+      try {
+        // Build request JWT (unchanged behavior)
+        const { jwt } = buildRequestJWT(`${prefix}Header`, `${prefix}Body`);
+        reqEl.textContent = jwt;
+        decReqEl.textContent = decodeJWT(jwt);
+
+        if (doSSO) {
+          // Top-level GET navigation to invoke Redirect-type SSO
+          const u = new URL(SSO_BASE + (kind === 'registration' ? PATHS.registration : PATHS.authentication));
+          const state = randState();
+          sessionStorage.setItem('sso_state', state);
+
+          u.searchParams.set('redirect_uri', REDIRECT_URI);    // come back to this page
+          u.searchParams.set('state', state);                  // echo back
+          u.searchParams.set(REQUEST_PARAM_NAME, jwt);         // send the JWT in query
+
+          // Top-level nav (NOT fetch/XHR)
+          window.top.location.assign(u.toString());
+        } else {
+          // Local agent fallback (unchanged)
+          const path = kind === 'registration' ? '/register' : '/authenticate';
+          const url = `http://127.0.0.1:${backendPort}${path}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: reqEl.textContent
+          });
+          const text = await response.text();
+          resEl.textContent = text;                 // full token, no truncation
+          decResEl.textContent = decodeJWT(text);
+          decResEl.classList.toggle('ok', response.ok);
+          decResEl.classList.toggle('err', !response.ok);
+        }
+      } catch (e) {
+        reqEl.textContent = 'Error: ' + e.message;
+        decReqEl.textContent = '';
+        resEl.textContent = '';
+        decResEl.textContent = 'Error: ' + e.message;
+        decResEl.classList.add('err');
+      }
+    }
+
+    // Handle the redirect BACK from the SSO extension (prints full token)
+    function handleReturn() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token') || params.get('jwt') || params.get('id_token') || params.get('access_token');
+      const state = params.get('state');
+      const expected = sessionStorage.getItem('sso_state');
+
+      // Decide which pane to print into based on optional 'type' (or just print both)
+      const targets = [
+        { res: 'regResponseString', dec: 'regDecodedResponse' },
+        { res: 'authResponseString', dec: 'authDecodedResponse' }
+      ];
+
+      if (!token && !state) return; // nothing to show
+
+      const ok = state && expected && state === expected;
+      targets.forEach(t => {
+        const resPre = document.getElementById(t.res);
+        const decPre = document.getElementById(t.dec);
+        if (!resPre || !decPre) return;
+
+        resPre.textContent = token || '(missing token)'; // FULL token, no truncation
+        decPre.textContent = token ? decodeJWT(token) : '(n/a)';
+        decPre.classList.toggle('ok',  !!ok);
+        decPre.classList.toggle('err', !ok);
+      });
+
+      // Clean the URL so refresh doesn't re-parse
+      const clean = new URL(location.href); clean.search = '';
+      history.replaceState(null, '', clean);
+    }
+
+    async function sendStatusRequest() {
+      // If you want Status to go through SSO extension as GET:
+      const ssoUrl = new URL(SSO_BASE + PATHS.status);
+      const state = randState();
+      sessionStorage.setItem('sso_state', state);
+      ssoUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+      ssoUrl.searchParams.set('state', state);
+      // optionally send a small hint
+      ssoUrl.searchParams.set('hint', 'status');
+
+      // Top-level nav so the extension can handle and return ?token=...
+      window.top.location.assign(ssoUrl.toString());
+    }
+  </script>
 </body>
 </html>
