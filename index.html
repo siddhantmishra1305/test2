@@ -256,18 +256,30 @@
     }
 
     async function sendStatusRequest() {
-      // If you want Status to go through SSO extension as GET:
-      const ssoUrl = new URL(SSO_BASE + PATHS.status);
-      const state = randState();
-      sessionStorage.setItem('sso_state', state);
-      ssoUrl.searchParams.set('redirect_uri', REDIRECT_URI);
-      ssoUrl.searchParams.set('state', state);
-      // optionally send a small hint
-      ssoUrl.searchParams.set('hint', 'status');
+    const rpid  = document.getElementById('statusRpid').value.trim();
+    const envId = document.getElementById('statusEnvId').value.trim();
 
-      // Top-level nav so the extension can handle and return ?token=...
-      window.top.location.assign(ssoUrl.toString());
-    }
+    // Build the SSO URL for Status — MUST match your Redirect profile's URLs prefix
+    const u = new URL(SSO_BASE + PATHS.status);
+
+    const state = randState();
+    sessionStorage.setItem('sso_state', state);
+
+    // Existing params
+    u.searchParams.set('redirect_uri', REDIRECT_URI);  // come back to this page
+    u.searchParams.set('state', state);
+
+    // NEW params requested
+    u.searchParams.set('rpid', rpid);
+    u.searchParams.set('environmentId', envId);
+
+    // (Optional) show the exact URL we’re navigating to
+    const pre = document.getElementById('statusRequestURL');
+    if (pre) pre.textContent = u.toString();
+
+    // Top-level navigation so the Redirect-type SSO extension will run
+    window.top.location.assign(u.toString());
+  }
   </script>
 </body>
 </html>
